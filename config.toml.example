@@ -1,45 +1,63 @@
 # Example configuration file for simplified onchain bot
 
+# 配置机器人的基本参数
 [bot]
-# Max compute unit limit per transaction
+# 每笔交易的最大计算单元限制
 compute_unit_limit = 600000
 
+# 路由配置部分，定义需要处理的代币及其相关流动性池
 [routing]
-# Configuration for each mint to process
+# 为每个代币配置其对应的各类去中心化交易所（DEX）流动性池
 [[routing.mint_config_list]]
-mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"                # USDC
+# USDC代币地址
+mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+# Pump.fun平台的流动性池列表
 pump_pool_list = ["Gf7sXMoP8iRw4iiXmJ1nq4vxcRycbGXy5RL8a8LnTd3v"]
+# Raydium平台的流动性池列表
 raydium_pool_list = ["58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"]
+# Meteora DAMM平台的流动性池列表（当前为空）
 meteora_damm_pool_list = []
+# Meteora DLMM平台的流动性池列表
 meteora_dlmm_pool_list = ["5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6"]
+# Meteora DAMM V2平台的流动性池列表（当前为空）
 meteora_damm_v2_pool_list = []
+# Whirlpool平台的流动性池列表
 whirlpool_pool_list = ["Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"]
+# Raydium CLMM平台的流动性池列表
 raydium_clmm_pool_list = ["3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"]
+# Raydium CP平台的流动性池列表（当前为空）
 raydium_cp_pool_list = []
+# Vertigo平台的流动性池列表（当前为空）
 vertigo_pool_list = [] 
+# 查找表账户列表，用于优化交易构建
 lookup_table_accounts = ["8HvgxVyd22Jq9mmoojm4Awqw6sbymbF5pwLr8FtvySHs"]
+# 处理延迟时间（毫秒），用于控制交易发送频率
 process_delay = 400
 
+# RPC配置部分，定义与Solana网络交互的RPC节点
 [rpc]
-# RPC URL for the Solana network
+# 主网RPC URL
 url = "https://api.mainnet-beta.solana.com"
 
+# 垃圾交易（Spam）配置部分，用于提高交易确认速度
 [spam]
-# Enable spam transactions
+# 是否启用垃圾交易功能
 enabled = true
-# List of RPC URLs to use for sending transactions
+# 发送交易使用的RPC URL列表
 sending_rpc_urls = [
   "https://api.mainnet-beta.solana.com",
 ]
-# Fixed compute unit price
+# 固定的计算单元价格（微Lamport）
 compute_unit_price = 1000
-# Maximum retries
+# 最大重试次数
 max_retries = 3
 
+# 钱包配置部分
 [wallet]
-# Private key (can be path or environment variable)
+# 私钥配置，可以是文件路径或环境变量名
 private_key = ""
 
+# Kamino闪电贷配置部分
 [kamino_flashloan]
-# Enable Kamino flashloan
+# 是否启用Kamino闪电贷功能
 enabled = true

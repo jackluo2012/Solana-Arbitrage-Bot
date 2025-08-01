@@ -33,6 +33,21 @@ use spl_associated_token_account::ID as associated_token_program_id;
 use spl_token::ID as token_program_id;
 use std::str::FromStr;
 
+/// 构建并发送一笔 Solana 交易，包含 Swap 操作及相关计算预算指令。
+///
+/// 该函数会为交易添加随机扰动以避免交易哈希冲突，并通过多个 RPC 客户端尝试发送交易，
+/// 若配置中启用了重试机制，则会在发送失败时进行重试。
+///
+/// # 参数说明
+/// - `wallet_kp`: 钱包的密钥对，用于签署交易。
+/// - `config`: 机器人配置信息，包括计算单元限制、是否启用 Flashloan、Spam 配置等。
+/// - `mint_pool_data`: Swap 操作涉及的池子数据。
+/// - `rpc_clients`: 一组 RPC 客户端，用于发送交易。
+/// - `blockhash`: 当前最新的区块哈希，用于构建交易。
+/// - `address_lookup_table_accounts`: 地址查找表账户，用于构建版本化交易。
+///
+/// # 返回值
+/// 返回一个 `Result<Vec<Signature>>`，其中包含所有成功发送的交易签名。若所有 RPC 客户端均发送失败，则返回错误。
 pub async fn build_and_send_transaction(
     wallet_kp: &Keypair,
     config: &Config,
@@ -41,20 +56,24 @@ pub async fn build_and_send_transaction(
     blockhash: Hash,
     address_lookup_table_accounts: &[AddressLookupTableAccount],
 ) -> anyhow::Result<Vec<Signature>> {
+    // 读取是否启用 Flashloan 和计算单元限制配置
     let enable_flashloan = config.flashloan.as_ref().map_or(false, |k| k.enabled);
     let compute_unit_limit = config.bot.compute_unit_limit;
     let mut instructions = vec![];
-    // Add a random number here to make each transaction unique
+
+    // 添加计算单元限制指令，并加入随机扰动以避免交易重复
     let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(
         compute_unit_limit + rand::random::<u32>() % 1000,
     );
     instructions.push(compute_budget_ix);
 
+    // 添加计算单元价格指令
     let compute_unit_price = config.spam.as_ref().map_or(1000, |s| s.compute_unit_price);
     let compute_budget_price_ix =
         ComputeBudgetInstruction::set_compute_unit_price(compute_unit_price);
     instructions.push(compute_budget_price_ix);
 
+    // 构造 Swap 操作指令
     let swap_ix = create_swap_instruction(
         wallet_kp,
         mint_pool_data,
@@ -62,11 +81,12 @@ pub async fn build_and_send_transaction(
         enable_flashloan,
     )?;
 
+    // 合并所有指令
     let mut all_instructions = instructions.clone();
-
     debug!("Adding swap instruction");
     all_instructions.push(swap_ix);
 
+    // 编译交易消息
     let message = Message::try_compile(
         &wallet_kp.pubkey(),
         &all_instructions,
@@ -74,11 +94,13 @@ pub async fn build_and_send_transaction(
         blockhash,
     )?;
 
+    // 构造版本化交易
     let tx = VersionedTransaction::try_new(
         solana_sdk::message::VersionedMessage::V0(message),
         &[wallet_kp],
     )?;
 
+    // 获取最大重试次数配置，默认为 3 次
     let max_retries = config
         .spam
         .as_ref()
@@ -87,6 +109,7 @@ pub async fn build_and_send_transaction(
 
     let mut signatures = Vec::new();
 
+    // 遍历所有 RPC 客户端，尝试发送交易
     for (i, client) in rpc_clients.iter().enumerate() {
         debug!("Sending transaction through RPC client {}", i);
 

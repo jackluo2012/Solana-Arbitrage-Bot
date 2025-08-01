@@ -42,7 +42,8 @@ pub async fn initialize_pool_data(
     let mint_pubkey = Pubkey::from_str(mint)?;
     let mint_account = rpc_client.get_account(&mint_pubkey)?;
 
-    // Determine token program based on mint account owner
+    // 根据铸币账户所有者确定代币程序是 Token 或 Token 2022
+
     let token_2022_program_id =
         Pubkey::from_str("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").unwrap();
     let token_program = if mint_account.owner == spl_token::ID {
@@ -56,13 +57,14 @@ pub async fn initialize_pool_data(
     info!("Detected token program: {}", token_program);
     let mut pool_data = MintPoolData::new(mint, wallet_account, token_program)?;
     info!("Pool data initialized for mint: {}", mint);
-
+    // pump.fun 平台池
     if let Some(pools) = pump_pools {
         for pool_address in pools {
             let pump_pool_pubkey = Pubkey::from_str(pool_address)?;
-
+            // 获取帐号信息
             match rpc_client.get_account(&pump_pool_pubkey) {
                 Ok(account) => {
+                    // 如果拿到的帐号信息比对 pump.fun 池的账户，则返回错误
                     if account.owner != pump_program_id() {
                         error!(
                             "Error: Pump pool account is not owned by the Pump program. Expected: {}, Actual: {}",
@@ -73,8 +75,23 @@ pub async fn initialize_pool_data(
                         ));
                     }
 
+                    /// 尝试从指定的账户数据中加载并验证 Pump AMM 信息，并将其添加到池数据中。
+                    ///
+                    /// 该函数会解析 AMM 信息，确定 SOL 和代币的 vault 地址，计算手续费账户和创建者账户的关联地址，
+                    /// 然后将这些信息注册到 `pool_data` 中。如果解析失败，则返回错误。
+                    ///
+                    /// # 参数说明：
+                    /// - `account`: 包含 AMM 信息的账户数据引用。
+                    /// - `pool_address`: 当前处理的池地址。
+                    /// - `pump_pool_pubkey`: Pump 协议中的池公钥。
+                    /// - `pool_data`: 用于存储池信息的可变引用。
+                    ///
+                    /// # 返回值：
+                    /// - 成功时返回 `Ok(())`，表示已成功添加 Pump 池。
+                    /// - 失败时返回相应的错误，如解析 AMM 信息失败等。
                     match PumpAmmInfo::load_checked(&account.data) {
                         Ok(amm_info) => {
+                            // 根据 base_mint 或 quote_mint 是否为 SOL mint 来决定 token_vault 和 sol_vault 的对应关系
                             let (sol_vault, token_vault) = if sol_mint() == amm_info.base_mint {
                                 (
                                     amm_info.pool_base_token_account,
@@ -86,24 +103,28 @@ pub async fn initialize_pool_data(
                                     amm_info.pool_base_token_account,
                                 )
                             } else {
+                                // 默认情况也使用 quote 作为 SOL vault（可能是 fallback 逻辑）
                                 (
                                     amm_info.pool_quote_token_account,
                                     amm_info.pool_base_token_account,
                                 )
                             };
 
+                            // 计算手续费钱包的关联代币账户地址
                             let fee_token_wallet =
                                 spl_associated_token_account::get_associated_token_address(
                                     &pump_fee_wallet(),
                                     &amm_info.quote_mint,
                                 );
 
+                            // 计算代币创建者 vault 的 ATA 地址
                             let coin_creator_vault_ata =
                                 spl_associated_token_account::get_associated_token_address(
                                     &amm_info.coin_creator_vault_authority,
                                     &amm_info.quote_mint,
                                 );
 
+                            // 将解析出的池信息添加到 pool_data 中
                             pool_data.add_pump_pool(
                                 pool_address,
                                 &token_vault.to_string(),
@@ -112,6 +133,8 @@ pub async fn initialize_pool_data(
                                 &coin_creator_vault_ata.to_string(),
                                 &amm_info.coin_creator_vault_authority.to_string(),
                             )?;
+
+                            // 打印调试日志，记录添加的池信息
                             info!("Pump pool added: {}", pool_address);
                             info!("    Base mint: {}", amm_info.base_mint.to_string());
                             info!("    Quote mint: {}", amm_info.quote_mint.to_string());
@@ -129,6 +152,7 @@ pub async fn initialize_pool_data(
                             info!("    Initialized Pump pool: {}\n", pump_pool_pubkey);
                         }
                         Err(e) => {
+                            // 如果无法解析 AMM 信息，则记录错误并返回
                             error!(
                                 "Error parsing AmmInfo from Pump pool {}: {:?}",
                                 pump_pool_pubkey, e
@@ -148,10 +172,25 @@ pub async fn initialize_pool_data(
         }
     }
 
+    // 处理 Raydium 流动性池的初始化逻辑。
+    //
+    // 该代码块遍历给定的 Raydium 池地址列表，验证每个池账户是否有效，并提取必要的信息（如代币 vault 地址），
+    // 然后将其添加到 `pool_data` 中用于后续处理。
+    //
+    // # 参数说明
+    // - `raydium_pools`: 一个可选的字符串切片向量，表示要处理的 Raydium 池地址列表。
+    // - `rpc_client`: 与 Solana 链交互的 RPC 客户端实例。
+    // - `pool_data`: 包含池相关数据的结构体，用于存储解析出的池信息。
+    //
+    // # 返回值
+    // - 成功时返回 `Ok(())`。
+    // - 出现任何错误时返回 `Err(anyhow::Error)`。
+
     if let Some(pools) = raydium_pools {
         for pool_address in pools {
             let raydium_pool_pubkey = Pubkey::from_str(pool_address)?;
 
+            // 获取池账户信息并验证其所有者是否为 Raydium 程序
             match rpc_client.get_account(&raydium_pool_pubkey) {
                 Ok(account) => {
                     if account.owner != raydium_program_id() {
@@ -164,8 +203,10 @@ pub async fn initialize_pool_data(
                         ));
                     }
 
+                    // 解析账户数据为 AmmInfo 并进行有效性检查
                     match RaydiumAmmInfo::load_checked(&account.data) {
                         Ok(amm_info) => {
+                            // 确保目标 mint 在池中存在
                             if amm_info.coin_mint != pool_data.mint
                                 && amm_info.pc_mint != pool_data.mint
                             {
@@ -179,6 +220,7 @@ pub async fn initialize_pool_data(
                                 ));
                             }
 
+                            // 确保池中包含 SOL 代币
                             if amm_info.coin_mint != sol_mint() && amm_info.pc_mint != sol_mint() {
                                 error!(
                                     "SOL is not present in Raydium pool {}",
@@ -190,12 +232,14 @@ pub async fn initialize_pool_data(
                                 ));
                             }
 
+                            // 根据 SOL 是 coin 还是 pc 来确定 vault 的对应关系
                             let (sol_vault, token_vault) = if sol_mint() == amm_info.coin_mint {
                                 (amm_info.coin_vault, amm_info.pc_vault)
                             } else {
                                 (amm_info.pc_vault, amm_info.coin_vault)
                             };
 
+                            // 将解析出的池信息加入 pool_data
                             pool_data.add_raydium_pool(
                                 pool_address,
                                 &token_vault.to_string(),
@@ -228,12 +272,29 @@ pub async fn initialize_pool_data(
         }
     }
 
+    // 处理 Raydium Concentrated Liquidity (CP) 池的逻辑。
+    //
+    // 该段代码用于验证并加载指定的 Raydium CP 池账户信息，并从中提取与当前交易对相关的 vault 地址、
+    // AMM 配置和观测密钥等信息，最终将这些信息添加到 `pool_data` 中。
+    //
+    // # 参数说明（基于上下文推测）：
+    // - `raydium_cp_pools`: 可选的字符串切片向量，表示要处理的 Raydium CP 池地址列表。
+    // - `rpc_client`: 用于与 Solana 区块链交互的 RPC 客户端实例。
+    // - `pool_data`: 存储池相关信息的数据结构，用于保存解析后的池信息。
+    //
+    // # 返回值说明：
+    // - 成功时返回 `Ok(())` 表示所有池都已成功处理。
+    // - 失败时返回错误，可能由于账户不存在、所有者不匹配、数据解析失败等原因。
+
     if let Some(pools) = raydium_cp_pools {
+        // 遍历每一个提供的 Raydium CP 池地址
         for pool_address in pools {
             let raydium_cp_pool_pubkey = Pubkey::from_str(pool_address)?;
 
+            // 获取池账户信息
             match rpc_client.get_account(&raydium_cp_pool_pubkey) {
                 Ok(account) => {
+                    // 验证账户是否由正确的程序拥有
                     if account.owner != raydium_cp_program_id() {
                         error!(
                             "Error: Raydium CP pool account is not owned by the Raydium CP program. Expected: {}, Actual: {}",
@@ -244,8 +305,10 @@ pub async fn initialize_pool_data(
                         ));
                     }
 
+                    // 尝试解析账户中的 AMM 信息
                     match RaydiumCpAmmInfo::load_checked(&account.data) {
                         Ok(amm_info) => {
+                            // 确保目标代币存在于该池中
                             if amm_info.token_0_mint != pool_data.mint
                                 && amm_info.token_1_mint != pool_data.mint
                             {
@@ -259,6 +322,7 @@ pub async fn initialize_pool_data(
                                 ));
                             }
 
+                            // 根据 SOL 是 token0 还是 token1 来决定 vault 的顺序
                             let (sol_vault, token_vault) = if sol_mint() == amm_info.token_0_mint {
                                 (amm_info.token_0_vault, amm_info.token_1_vault)
                             } else if sol_mint() == amm_info.token_1_mint {
@@ -274,6 +338,7 @@ pub async fn initialize_pool_data(
                                 ));
                             };
 
+                            // 将解析出的信息添加到 pool_data 中
                             pool_data.add_raydium_cp_pool(
                                 pool_address,
                                 &token_vault.to_string(),
@@ -309,10 +374,36 @@ pub async fn initialize_pool_data(
             }
         }
     }
+
+    /// 处理 DLMM 池列表，加载每个池的信息并将其添加到 `pool_data` 中。
+    ///
+    /// 该函数会遍历传入的 DLMM 池地址列表，对每个池执行以下操作：
+    /// 1. 将地址字符串解析为 `Pubkey`；
+    /// 2. 通过 RPC 获取账户信息，并验证其所有者是否为 DLMM 程序；
+    /// 3. 解析账户数据为 `DlmmInfo` 结构体；
+    /// 4. 获取代币和 SOL 的资金池地址；
+    /// 5. 计算并获取池的 Bin Array 地址；
+    /// 6. 将池信息添加到 `pool_data` 中；
+    /// 7. 打印池的详细信息和 Bin Array 列表。
+    ///
+    /// # 参数
+    /// - `dlmm_pools`: 可选的 DLMM 池地址字符串列表；
+    /// - `rpc_client`: 用于与区块链交互的 RPC 客户端；
+    /// - `pool_data`: 用于存储池信息的数据结构；
+    ///
+    /// # 返回值
+    /// 成功时返回 `Ok(())`，失败时返回错误信息。
+    ///
+    /// # 错误处理
+    /// - 如果池账户的所有者不是 DLMM 程序，返回错误；
+    /// - 如果解析 `DlmmInfo` 失败，返回错误；
+    /// - 如果获取账户失败，返回错误；
+    /// - 如果计算 Bin Array 失败，返回错误；
     if let Some(pools) = dlmm_pools {
         for pool_address in pools {
             let dlmm_pool_pubkey = Pubkey::from_str(pool_address)?;
 
+            // 获取 DLMM 池账户信息并验证所有者
             match rpc_client.get_account(&dlmm_pool_pubkey) {
                 Ok(account) => {
                     if account.owner != dlmm_program_id() {
@@ -325,12 +416,14 @@ pub async fn initialize_pool_data(
                         ));
                     }
 
+                    // 解析 DLMM 池账户数据
                     match DlmmInfo::load_checked(&account.data) {
                         Ok(amm_info) => {
                             let sol_mint = sol_mint();
                             let (token_vault, sol_vault) =
                                 amm_info.get_token_and_sol_vaults(&pool_data.mint, &sol_mint);
 
+                            // 计算 Bin Array 地址
                             let bin_arrays = match amm_info.calculate_bin_arrays(&dlmm_pool_pubkey)
                             {
                                 Ok(arrays) => arrays,
@@ -343,11 +436,13 @@ pub async fn initialize_pool_data(
                                 }
                             };
 
+                            // 将 Bin Array 地址转换为字符串引用列表
                             let bin_array_strings: Vec<String> =
                                 bin_arrays.iter().map(|pubkey| pubkey.to_string()).collect();
                             let bin_array_str_refs: Vec<&str> =
                                 bin_array_strings.iter().map(|s| s.as_str()).collect();
 
+                            // 将池信息添加到 pool_data
                             pool_data.add_dlmm_pool(
                                 pool_address,
                                 &token_vault.to_string(),
@@ -357,6 +452,7 @@ pub async fn initialize_pool_data(
                                 None, // memo_program
                             )?;
 
+                            // 打印池信息
                             info!("DLMM pool added: {}", pool_address);
                             info!("    Token X Mint: {}", amm_info.token_x_mint.to_string());
                             info!("    Token Y Mint: {}", amm_info.token_y_mint.to_string());

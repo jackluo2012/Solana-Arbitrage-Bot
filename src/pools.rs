@@ -102,29 +102,61 @@ pub struct VertigoPool {
 }
 
 #[derive(Debug, Clone)]
+/// MintPoolData 结构体用于存储与特定铸币相关的池信息和账户数据
+///
+/// 该结构体包含了与特定铸币相关的各种去中心化交易所池信息，
+/// 以及相关的钱包账户和程序账户信息，支持多种不同的DEX协议
 pub struct MintPoolData {
+    /// 铸币的公钥地址
     pub mint: Pubkey,
+    /// 代币程序的公钥地址，支持Token和Token 2022两种代币标准
     pub token_program: Pubkey, // Support for both Token and Token 2022
+    /// 钱包账户的公钥地址
     pub wallet_account: Pubkey,
+    /// 钱包WSOL账户的公钥地址，用于处理SOL代币的包装和解包装
     pub wallet_wsol_account: Pubkey,
+    /// Raydium协议的池信息列表
     pub raydium_pools: Vec<RaydiumPool>,
+    /// Raydium集中流动性池信息列表
     pub raydium_cp_pools: Vec<RaydiumCpPool>,
+    /// Pump协议的池信息列表
     pub pump_pools: Vec<PumpPool>,
+    /// DLMM协议的池信息列表
     pub dlmm_pairs: Vec<DlmmPool>,
+    /// Whirlpool协议的池信息列表
     pub whirlpool_pools: Vec<WhirlpoolPool>,
+    /// Raydium CLMM协议的池信息列表
     pub raydium_clmm_pools: Vec<RaydiumClmmPool>,
+    /// Meteora DAmm协议的池信息列表
     pub meteora_damm_pools: Vec<MeteoraDAmmPool>,
+    /// Solfi协议的池信息列表
     pub solfi_pools: Vec<SolfiPool>,
+    /// Meteora DAmm V2协议的池信息列表
     pub meteora_damm_v2_pools: Vec<MeteoraDAmmV2Pool>,
+    /// Vertigo协议的池信息列表
     pub vertigo_pools: Vec<VertigoPool>,
 }
 
 impl MintPoolData {
+    /// 创建一个新的实例
+    ///
+    /// # 参数
+    /// * `mint` - 代币mint地址的字符串表示
+    /// * `wallet_account` - 钱包账户地址的字符串表示
+    /// * `token_program` - 代币程序的公钥
+    ///
+    /// # 返回值
+    /// 返回Result包装的新实例，如果解析公钥失败则返回错误
     pub fn new(mint: &str, wallet_account: &str, token_program: Pubkey) -> anyhow::Result<Self> {
+        // 解析SOL mint地址和钱包地址
         let sol_mint = Pubkey::from_str(SOL_MINT)?;
         let wallet_pk = Pubkey::from_str(wallet_account)?;
+
+        // 计算钱包的WSOL关联代币地址
         let wallet_wsol_pk =
             spl_associated_token_account::get_associated_token_address(&wallet_pk, &sol_mint);
+
+        // 构造并返回新实例，初始化所有池子列表为空
         Ok(Self {
             mint: Pubkey::from_str(mint)?,
             token_program,
@@ -157,6 +189,23 @@ impl MintPoolData {
         Ok(())
     }
 
+    /// 向Raydium集中流动性池列表中添加一个新的池
+    ///
+    /// 该函数创建一个新的RaydiumCpPool实例并将其添加到内部存储中。
+    /// 所有地址参数都必须是有效的Solana公钥字符串格式。
+    ///
+    /// # 参数
+    /// * `pool` - 流动性池的公钥地址字符串
+    /// * `token_vault` - 代币资金池的公钥地址字符串
+    /// * `sol_vault` - SOL资金池的公钥地址字符串
+    /// * `amm_config` - AMM配置账户的公钥地址字符串
+    /// * `observation` - 价格观测账户的公钥地址字符串
+    ///
+    /// # 返回值
+    /// 返回Result<(), anyhow::Error>，成功时返回Ok(())，失败时返回包含错误信息的Err
+    ///
+    /// # 错误
+    /// 当任何公钥地址字符串格式无效时，会返回解析错误
     pub fn add_raydium_cp_pool(
         &mut self,
         pool: &str,
@@ -165,6 +214,7 @@ impl MintPoolData {
         amm_config: &str,
         observation: &str,
     ) -> anyhow::Result<()> {
+        // 创建新的Raydium集中流动性池实例并添加到列表中
         self.raydium_cp_pools.push(RaydiumCpPool {
             pool: Pubkey::from_str(pool)?,
             token_vault: Pubkey::from_str(token_vault)?,
@@ -175,6 +225,18 @@ impl MintPoolData {
         Ok(())
     }
 
+    /// 向泵池列表中添加一个新的泵池配置
+    ///
+    /// # 参数
+    /// * `pool` - 泵池的公钥地址字符串
+    /// * `token_vault` - 代币保险库的公钥地址字符串
+    /// * `sol_vault` - SOL保险库的公钥地址字符串
+    /// * `fee_token_wallet` - 手续费代币钱包的公钥地址字符串
+    /// * `coin_creator_vault_ata` - 代币创建者保险库关联代币账户的公钥地址字符串
+    /// * `coin_creator_authority` - 代币创建者权限账户的公钥地址字符串
+    ///
+    /// # 返回值
+    /// 返回Result<(), anyhow::Error>，成功时返回Ok(())，失败时返回错误信息
     pub fn add_pump_pool(
         &mut self,
         pool: &str,
@@ -184,6 +246,7 @@ impl MintPoolData {
         coin_creator_vault_ata: &str,
         coin_creator_authority: &str,
     ) -> anyhow::Result<()> {
+        // 创建新的泵池结构体并添加到泵池列表中
         self.pump_pools.push(PumpPool {
             pool: Pubkey::from_str(pool)?,
             token_vault: Pubkey::from_str(token_vault)?,
